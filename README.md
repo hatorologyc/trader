@@ -1,6 +1,6 @@
 # Radar Sinyal Forex
 
-Halaman web satu file (`index.html`) yang menghitung skor beli/jual dari enam indikator teknikal (EMA, SMA 50, MACD, RSI, Bollinger, ADX), menguji aturan itu pada data historis, lalu menampilkan stop loss, take profit, ukuran posisi, dan jam transaksi dalam WIB.
+Halaman web satu file (`index.html`), ditambah indikator Pine Script untuk TradingView (`radar-sinyal.pine`), yang menghitung skor beli/jual dari enam indikator teknikal (EMA, SMA 50, MACD, RSI, Bollinger, ADX), menguji aturan itu pada data historis, lalu menampilkan stop loss, take profit, ukuran posisi, dan jam transaksi dalam WIB.
 
 Alat bantu analisis, bukan nasihat keuangan. Tidak ada metode yang memastikan arah harga. Percayai hasil uji ulang pada data nyata, bukan skor hari ini.
 
@@ -17,11 +17,24 @@ Harga di aplikasi broker dikutip sendiri oleh broker dan bisa berbeda dari sumbe
 ## Memasang di GitHub Pages
 
 1. Buat repositori **publik** baru, misalnya `radar-forex`.
-2. Klik **Add file → Upload files**, unggah `index.html` (dan `README.md` bila mau), lalu **Commit changes**.
+2. Klik **Add file → Upload files**, unggah `index.html` (dan `radar-sinyal.pine` serta `README.md` bila mau), lalu **Commit changes**.
 3. Buka **Settings → Pages**. Pada **Build and deployment**, pilih **Deploy from a branch**, cabang `main`, folder `/ (root)`, lalu **Save**.
 4. Tunggu 1 sampai 2 menit. Alamatnya `https://<nama-akun>.github.io/radar-forex/`.
 
 Tidak perlu server, kunci API, atau proses build.
+
+## TradingView
+
+TradingView tidak menyediakan cara bagi aplikasi luar untuk menulis sinyal atau gambar ke akun Anda. Ada dua cara yang didukung:
+
+**1. Grafik TradingView di halaman.** Klik **Tampilkan grafik TradingView**. Grafik mengikuti instrumen dan periode yang dipilih (RSI, MACD, dan Bollinger sudah terpasang). Halaman memuat skrip dari `s3.tradingview.com` hanya saat tombol ditekan. Untuk emas, simbol yang dipakai `OANDA:XAUUSD`. Bila TradingView menolak menampilkannya, ganti simbol lewat kotak pencarian di dalam grafik.
+
+**2. Indikator Pine Script `radar-sinyal.pine`.** Panah BELI/JUAL, garis SL/TP, tabel skor, dan peringatan muncul langsung di grafik TradingView Anda.
+1. Buka grafik di TradingView, lalu buka tab **Pine Editor** di bagian bawah.
+2. Pilih **Open → New blank indicator**, hapus isinya, tempel seluruh isi `radar-sinyal.pine`, lalu klik **Add to chart**.
+3. Untuk notifikasi otomatis: klik ikon **Alert**, pada **Condition** pilih **Radar Sinyal Forex**, pilih **Sinyal BELI**, **Sinyal JUAL**, atau **Sinyal BELI atau JUAL**, dan atur **Trigger** ke **Once Per Bar Close**. Notifikasi bisa lewat aplikasi, email, atau webhook. Webhook dan jumlah alert aktif bergantung pada paket TradingView Anda.
+
+Angka skor di TradingView bisa sedikit berbeda dari halaman web, karena sumber datanya berbeda (harga TradingView, bukan Binance atau ECB) dan awal perhitungan indikatornya tidak identik. Uji ulang historis hanya ada di halaman web.
 
 ## Bila data tidak termuat
 
