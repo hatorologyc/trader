@@ -1,0 +1,106 @@
+//@version=5
+// Radar Sinyal Forex untuk TradingView
+// Skor -100..+100 dari EMA 12/26, SMA 20/50, MACD, RSI 14, Bollinger 20/2 dan ADX 14.
+// Rumus sama dengan halaman web Radar Sinyal Forex. Sinyal hanya terbit saat candle ditutup.
+// Alat bantu analisis, bukan nasihat keuangan.
+indicator("Radar Sinyal Forex", shorttitle="Radar", overlay=true, max_labels_count=300, max_lines_count=300)
+
+thr     = input.float(30,   "Ambang sinyal (skor)",           minval=10,  maxval=70, step=5)
+slMult  = input.float(1.5,  "Stop loss (x ATR)",              minval=0.5, step=0.25)
+tpMult  = input.float(2.25, "Take profit (x ATR)",            minval=0.5, step=0.25)
+showLv  = input.bool(true,  "Gambar garis dan label SL/TP")
+lineLen = input.int(10,     "Panjang garis SL/TP (candle)",   minval=2,   maxval=100)
+showTbl = input.bool(true,  "Tampilkan tabel skor")
+
+buyCol  = color.new(#08a36a, 0)
+sellCol = color.new(#d9382e, 0)
+
+tanh(x) =>
+    e = math.exp(2 * math.max(-20.0, math.min(20.0, x)))
+    (e - 1) / (e + 1)
+
+clamp(x, lo, hi) =>
+    math.max(lo, math.min(hi, x))
+
+// Indikator
+a     = ta.atr(14)
+ema12 = ta.ema(close, 12)
+ema26 = ta.ema(close, 26)
+sma20 = ta.sma(close, 20)
+sma50 = ta.sma(close, 50)
+macd  = ema12 - ema26
+sigl  = ta.ema(macd, 9)
+hist  = macd - sigl
+rsi14 = ta.rsi(close, 14)
+dev   = ta.stdev(close, 20)
+upper = sma20 + 2 * dev
+lower = sma20 - 2 * dev
+pb    = dev == 0 ? 0.5 : (close - lower) / (upper - lower)
+[diP, diM, adx] = ta.dmi(14, 14)
+
+// Tren
+t1    = tanh(((ema12 - ema26) / a) * 2)
+t2    = tanh(((close - sma50) / a) / 3)
+t3    = tanh(((sma20 - sma20[5]) / a) * 1.5)
+trend = (t1 + t2 + t3) / 3
+
+// Momentum
+m1  = tanh((hist / a) * 6)
+m2  = tanh(((hist - hist[1]) / a) * 20)
+m3  = clamp((rsi14 - 50) / 20, -1, 1)
+mom = 0.5 * m1 + 0.25 * m2 + 0.25 * m3
+
+// Pantulan (jenuh beli/jual)
+r1  = rsi14 <= 35 ? clamp((35 - rsi14) / 20, 0, 1) : rsi14 >= 65 ? -clamp((rsi14 - 65) / 20, 0, 1) : 0.0
+b1  = pb < 0.2 ? clamp((0.2 - pb) / 0.4, 0, 1) : pb > 0.8 ? -clamp((pb - 0.8) / 0.4, 0, 1) : 0.0
+rev = 0.5 * r1 + 0.5 * b1
+
+// Bobot bergeser menurut ADX: tren kuat memihak ikut-tren, sideways memihak pantulan
+k  = clamp((adx - 18) / 9, 0, 1)
+wT = 0.15 + 0.35 * k
+wM = 0.25 + 0.15 * k
+wR = 0.6 - 0.5 * k
+
+score = 100 * (wT * trend + wM * mom + wR * rev)
+
+ready   = bar_index >= 60 and not na(score) and barstate.isconfirmed
+buyNow  = ready and score >= thr
+sellNow = ready and score <= -thr
+buySig  = buyNow and not buyNow[1]
+sellSig = sellNow and not sellNow[1]
+
+plotshape(buySig,  title="Beli",  style=shape.triangleup,   location=location.belowbar, color=buyCol,  size=size.small, text="BELI", textcolor=buyCol)
+plotshape(sellSig, title="Jual",  style=shape.triangledown, location=location.abovebar, color=sellCol, size=size.small, text="JUAL", textcolor=sellCol)
+
+// Garis dan label SL/TP dari harga penutupan candle sinyal
+if (buySig or sellSig) and showLv
+    d   = buySig ? 1 : -1
+    ent = close
+    slp = ent - d * slMult * a
+    tpp = ent + d * tpMult * a
+    line.new(bar_index, ent, bar_index + lineLen, ent, color=color.gray, style=line.style_dotted)
+    line.new(bar_index, slp, bar_index + lineLen, slp, color=sellCol, style=line.style_dashed)
+    line.new(bar_index, tpp, bar_index + lineLen, tpp, color=buyCol, style=line.style_dashed)
+    label.new(bar_index + lineLen, slp, "SL " + str.tostring(slp, format.mintick), style=label.style_label_left, color=color.new(sellCol, 85), textcolor=sellCol, size=size.tiny)
+    label.new(bar_index + lineLen, tpp, "TP " + str.tostring(tpp, format.mintick), style=label.style_label_left, color=color.new(buyCol, 85), textcolor=buyCol, size=size.tiny)
+
+// Tabel ringkasan di candle terakhir
+var table tbl = table.new(position.top_right, 2, 4, border_width=1)
+if showTbl and barstate.islast
+    sc     = nz(score)
+    state  = sc >= thr ? "BELI" : sc <= -thr ? "JUAL" : "TUNGGU"
+    stCol  = sc >= thr ? buyCol : sc <= -thr ? sellCol : color.gray
+    regime = nz(adx) >= 25 ? "tren kuat" : nz(adx) >= 20 ? "tren lemah" : "sideways"
+    table.cell(tbl, 0, 0, "Sinyal", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 0, state, text_color=stCol, text_size=size.small)
+    table.cell(tbl, 0, 1, "Skor", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 1, str.tostring(sc, "#") + " / 100", text_color=stCol, text_size=size.small)
+    table.cell(tbl, 0, 2, "ADX", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 2, str.tostring(nz(adx), "#") + " " + regime, text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 0, 3, "ATR", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 3, str.tostring(nz(a), format.mintick), text_color=color.gray, text_size=size.small)
+
+// Peringatan. Saat membuat alert, pilih "Once Per Bar Close".
+alertcondition(buySig,            title="Sinyal BELI",          message="Radar: BELI {{ticker}} ({{interval}}) harga {{close}}")
+alertcondition(sellSig,           title="Sinyal JUAL",          message="Radar: JUAL {{ticker}} ({{interval}}) harga {{close}}")
+alertcondition(buySig or sellSig, title="Sinyal BELI atau JUAL", message="Radar: sinyal {{ticker}} ({{interval}}) harga {{close}}")
