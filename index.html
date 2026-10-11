@@ -191,6 +191,16 @@ ul.notes{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;m
     <div id="charts"></div>
   </section>
 
+  <section class="card" aria-labelledby="h-tv">
+    <div class="chead">
+      <h2 id="h-tv">Grafik TradingView</h2>
+      <div class="btns"><button class="btn" id="btnTV" type="button">Tampilkan grafik TradingView</button></div>
+    </div>
+    <p class="verdict warn" id="tvnote" hidden></p>
+    <div id="tvbox" hidden style="height:540px"></div>
+    <p class="fine" style="margin-top:0">Grafik mengikuti instrumen dan periode yang dipilih di atas, dengan RSI, MACD, dan Bollinger. Grafik ini milik TradingView, jadi halaman tidak bisa menggambar sinyal ke dalamnya. Untuk panah beli/jual dan peringatan otomatis di TradingView, pasang file Pine Script <b>radar-sinyal.pine</b> (langkahnya ada di README).</p>
+  </section>
+
   <section class="card" id="btcard"></section>
   <section class="card" id="indcard"></section>
 
@@ -863,6 +873,44 @@ function drawEquity(){
   box.innerHTML=`<svg class="ch" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Kurva hasil kumulatif dalam satuan R">${g}</svg>`;
 }
 
+/* ---------- TradingView ---------- */
+const TVSYM={EURUSD:'FX:EURUSD',GBPUSD:'FX:GBPUSD',USDJPY:'FX:USDJPY',AUDUSD:'FX:AUDUSD',USDIDR:'FX_IDC:USDIDR',BTCUSDT:'BINANCE:BTCUSDT',ETHUSDT:'BINANCE:ETHUSDT',DOGEUSDT:'BINANCE:DOGEUSDT',XAUUSD:'OANDA:XAUUSD'};
+const TVIV={'5m':'5','1h':'60','4h':'240','1d':'D'};
+let tvOn=false;
+function isDark(){
+  try{
+    const t=document.documentElement.getAttribute('data-theme');
+    return t==='dark'||(t!=='light'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }catch(e){return false;}
+}
+function drawTV(){
+  if(!tvOn)return;
+  const box=$('tvbox'),iv=TVIV[BINMAP[state.key]?$('tf').value:'1d']||'D',id='tv_'+Date.now();
+  box.innerHTML='';
+  const d=document.createElement('div');d.id=id;d.style.height='100%';box.appendChild(d);
+  new window.TradingView.widget({autosize:true,symbol:TVSYM[state.key],interval:iv,timezone:'Asia/Jakarta',theme:isDark()?'dark':'light',style:'1',locale:'id',enable_publishing:false,allow_symbol_change:true,
+    studies:['RSI@tv-basicstudies','MACD@tv-basicstudies','BB@tv-basicstudies'],container_id:id});
+}
+function toggleTV(){
+  const note=$('tvnote'),btn=$('btnTV');
+  if(tvOn){tvOn=false;$('tvbox').hidden=true;$('tvbox').innerHTML='';btn.textContent='Tampilkan grafik TradingView';return;}
+  const fail=()=>{
+    tvOn=false;$('tvbox').hidden=true;btn.disabled=false;btn.textContent='Tampilkan grafik TradingView';
+    note.hidden=false;note.innerHTML='<strong>Grafik TradingView tidak termuat</strong><span>Skrip dari s3.tradingview.com diblokir atau tidak terjangkau. Pratinjau claude.ai memang memblokirnya. Jalankan dari GitHub Pages atau browser, dan matikan ad-blocker bila ada.</span>';
+  };
+  const go=()=>{
+    tvOn=true;note.hidden=true;$('tvbox').hidden=false;btn.disabled=false;btn.textContent='Sembunyikan grafik';
+    try{drawTV();}catch(e){fail();}
+  };
+  if(window.TradingView&&window.TradingView.widget){go();return;}
+  btn.disabled=true;btn.textContent='Memuat…';
+  const s=document.createElement('script');s.src='https://s3.tradingview.com/tv.js';s.async=true;
+  const to=setTimeout(fail,10000);
+  s.onload=()=>{clearTimeout(to);if(window.TradingView&&window.TradingView.widget)go();else fail();};
+  s.onerror=()=>{clearTimeout(to);fail();};
+  document.head.appendChild(s);
+}
+
 /* ---------- Alur ---------- */
 function recompute(){
   if(!state.data)return;
@@ -879,9 +927,14 @@ pairSel.addEventListener('change',()=>{
     if(D.length>=80){state.data=D;state.sample=false;state.live=true;state.name='Kurs acuan harian ECB via Frankfurter';state.closeOnly=true;recompute();}
     else{state.data=makeSample(state.key);state.sample=true;state.live=false;state.closeOnly=false;recompute();if(!netBlocked)loadLive();}
   }else recompute();
+  if(tvOn)drawTV();
 });
 $('btnLive').addEventListener('click',loadLive);
-$('tf').addEventListener('change',()=>{if(BINMAP[state.key]&&(state.live||state.sample))loadLive();});
+$('btnTV').addEventListener('click',toggleTV);
+$('tf').addEventListener('change',()=>{
+  if(BINMAP[state.key]&&(state.live||state.sample))loadLive();
+  if(tvOn)drawTV();
+});
 $('btnSample').addEventListener('click',()=>{setData(makeSample(state.key),true,'',false);});
 $('btnFile').addEventListener('click',()=>$('file').click());
 $('file').addEventListener('change',e=>{
