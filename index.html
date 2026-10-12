@@ -153,6 +153,11 @@ ul.notes{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;m
         </div>
       </div>
     </div>
+    <div class="fld">
+      <label class="lbl" for="tdkey">Kunci API Twelve Data (opsional, untuk forex dan emas dengan High/Low dan periode intraday)</label>
+      <div class="btns" style="flex-wrap:nowrap"><input id="tdkey" type="password" autocomplete="off" spellcheck="false" placeholder="tempel kunci API" style="flex:1;min-width:140px"><button class="btn" id="btnTD" type="button" style="white-space:nowrap">Ambil dari Twelve Data</button></div>
+      <p class="fine" style="margin:0">Daftar gratis di twelvedata.com lalu salin API key dari dashboard. Kunci hanya disimpan di browser ini dan dikirim langsung ke twelvedata.com. Paket gratisnya untuk pemakaian pribadi, jadi jangan menampilkan datanya untuk orang lain.</p>
+    </div>
     <div id="pastebox" class="fld" hidden>
       <textarea id="paste" rows="5" placeholder="Date,Open,High,Low,Close&#10;2026-10-08,1.0912,1.0951,1.0890,1.0933&#10;2026-10-09,1.0933,1.0970,1.0911,1.0948"></textarea>
       <div class="btns"><button class="btn primary" id="btnUse" type="button">Pakai data ini</button></div>
@@ -211,6 +216,7 @@ ul.notes{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;m
       <li><b>Uji ulang</b> masuk di open candle berikutnya, memasang SL dan TP dari ATR, menganggap SL tersentuh lebih dulu bila SL dan TP kena di candle yang sama, dan mengurangi spread. 1R sama dengan jarak stop loss.</li>
       <li><b>Data uji</b> (30% terakhir) tidak dipakai untuk menyetel apa pun. Bila aturan untung di data latih tetapi rugi di data uji, anggap itu kebetulan.</li>
       <li><b>Kripto dan emas:</b> data BTC, ETH, DOGE dan emas diambil dari Binance (periode 5 menit sampai 1 hari, sekitar 3.000 candle untuk periode intraday). Emas memakai PAXG, token yang dipatok ke harga emas, sebagai pengganti XAU/USD. Harga di aplikasi broker Anda dikutip sendiri oleh broker, jadi angkanya bisa berbeda dari Binance, dan spread broker sering lebih lebar. Isi kolom spread dengan angka dari layar broker Anda.</li>
+      <li><b>Twelve Data (opsional):</b> untuk forex dan emas spot dengan High/Low dan periode 5 menit sampai 1 hari, daftar gratis di twelvedata.com, tempel API key di kolom kunci, lalu klik "Ambil dari Twelve Data". Paket gratis dibatasi 8 permintaan per menit dan 800 per hari, dan syaratnya hanya untuk pemakaian pribadi tanpa menampilkan data ke orang lain. Satu pemuatan memakai 1 kredit.</li>
       <li><b>Data internet:</b> tombol "Ambil data internet" memuat sekitar 2 tahun kurs acuan harian Bank Sentral Eropa (ECB) lewat Frankfurter. Kurs terbit satu kali per hari kerja sekitar pukul 21:00 WIB, tanpa High dan Low. Untuk data OHLC lengkap, unduh CSV dari Yahoo Finance (EURUSD=X → Historical Data) lalu unggah di sini.</li>
       <li><b>Batasan:</b> tidak ada metode yang memastikan arah harga. Angka yang bisa dipercaya adalah hasil uji ulang pada data nyata, bukan skor hari ini. Tetapkan batas rugi per transaksi (1 sampai 2% saldo) sebelum masuk.</li>
     </ul>
@@ -557,12 +563,39 @@ function setData(data,sample,name,closeOnly,live){
 /* ---------- Data internet: kurs acuan harian ECB lewat Frankfurter ---------- */
 const FXMAP={EURUSD:['EUR',1],GBPUSD:['GBP',1],AUDUSD:['AUD',1],USDJPY:['JPY',0],USDIDR:['IDR',0]};
 const BINMAP={BTCUSDT:'BTCUSDT',ETHUSDT:'ETHUSDT',DOGEUSDT:'DOGEUSDT',XAUUSD:'PAXGUSDT'};
+const TDMAP={EURUSD:'EUR/USD',GBPUSD:'GBP/USD',USDJPY:'USD/JPY',AUDUSD:'AUD/USD',USDIDR:'USD/IDR',XAUUSD:'XAU/USD'};
+const TDIV={'5m':['5min',300000],'1h':['1h',3600000],'4h':['4h',14400000],'1d':['1day',86400000]};
 let FX=null,netBlocked=false;
-const curTF=()=>(BINMAP[state.key]&&!state.sample)?$('tf').value:'1d';
+state.src='default';
+const lsGet=k=>{try{return localStorage.getItem(k)||'';}catch(e){return '';}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
+const tdKey=()=>String($('tdkey').value||'').trim();
+const hasTD=()=>!!(tdKey()&&TDMAP[state.key]);
+const useTD=()=>state.src==='td'&&hasTD();
+const curTF=()=>((BINMAP[state.key]||useTD())&&!state.sample)?$('tf').value:'1d';
 function syncTF(){
-  const tf=$('tf'),b=!!BINMAP[state.key];
+  const tf=$('tf'),b=!!BINMAP[state.key]||useTD();
   tf.disabled=!b;if(!b)tf.value='1d';
   $('sprlbl').textContent=PAIRS[state.key].unit?'Spread (USD)':'Spread (pip)';
+}
+function candleLabel(t,tf){
+  const s=new Date(t+7*3600000).toISOString();
+  return tf==='1d'?s.slice(0,10):s.slice(5,16).replace('T',' ');
+}
+async function fetchTD(sym,tf){
+  const cfg=TDIV[tf]||TDIV['1d'];
+  const j=await getJSON('https://api.twelvedata.com/time_series?symbol='+encodeURIComponent(sym)+'&interval='+cfg[0]+'&outputsize='+(tf==='1d'?1500:5000)+'&order=ASC&timezone=UTC&apikey='+encodeURIComponent(tdKey()),20000);
+  if(!j||j.status==='error'||!Array.isArray(j.values))throw new Error(j&&j.message?'Twelve Data: '+j.message:'respons Twelve Data tidak dikenali');
+  const now=Date.now(),out=[];
+  j.values.forEach(v=>{
+    const ds=String(v.datetime),t=Date.parse(ds.length<=10?ds+'T00:00:00Z':ds.replace(' ','T')+'Z');
+    const o=+v.open,h=+v.high,l=+v.low,c=+v.close;
+    if(!(t>0&&o>0&&h>0&&l>0&&c>0)||t+cfg[1]>now)return;
+    out.push({t,d:candleLabel(t,tf),o,h:Math.max(h,o,c),l:Math.min(l,o,c),c});
+  });
+  out.sort((a,b)=>a.t-b.t);
+  if(out.length<120)throw new Error('data yang diterima terlalu sedikit ('+out.length+' candle)');
+  return out;
 }
 async function fetchKlines(sym,iv){
   const pages=iv==='1d'?1:3;let lastErr=new Error('tidak ada respons');
@@ -658,6 +691,31 @@ function loadText(text,name){
   if(r.error){const e=$('err');e.textContent=r.error;e.hidden=false;return;}
   setData(r.data,false,name,r.closeOnly);
 }
+
+async function loadTD(){
+  const key=state.key,note=$('note'),b=$('btnTD');
+  if(!tdKey()){
+    note.hidden=false;note.innerHTML='<strong>Kunci API belum diisi</strong><span>Daftar gratis di twelvedata.com, salin API key dari dashboard, lalu tempel di kolom kunci.</span>';return;
+  }
+  if(!TDMAP[key]){
+    note.hidden=false;note.innerHTML='<strong>Instrumen ini tidak memakai Twelve Data</strong><span>Kripto diambil dari Binance. Pilih pasangan forex atau emas untuk memakai Twelve Data.</span>';return;
+  }
+  b.disabled=true;b.textContent='Mengambil data…';
+  state.src='td';syncTF();
+  try{
+    const tf=$('tf').value,D=await fetchTD(TDMAP[key],tf);
+    if(key!==state.key)return;
+    netBlocked=false;note.hidden=true;
+    setData(D,false,'Twelve Data '+TDMAP[key]+' '+tf+(tf==='1d'?'':' (waktu WIB)'),false,true);
+  }catch(e){
+    const net=e instanceof TypeError||e.name==='AbortError';
+    if(net)netBlocked=true;
+    note.hidden=false;
+    if(net)note.innerHTML='<strong>Twelve Data tidak terjangkau</strong><span>Permintaan diblokir atau koneksi terputus. Periksa koneksi dan ad-blocker, lalu coba lagi. Pratinjau claude.ai selalu memblokir permintaan data. Bila Twelve Data menolak permintaan dari browser, gunakan CSV dari sumber lain.</span>';
+    else note.innerHTML='<strong>Data Twelve Data gagal dimuat</strong><span>'+String(e.message).replace(/[<>&]/g,'').replace(/[.\s]+$/,'')+'. Pastikan kunci API benar dan kuota harian belum habis.</span>';
+  }finally{b.disabled=false;b.textContent='Ambil dari Twelve Data';}
+}
+const reload=()=>{if(useTD())loadTD();else loadLive();};
 
 /* ---------- Sinyal ---------- */
 function fmtDist(v){
@@ -885,7 +943,7 @@ function isDark(){
 }
 function drawTV(){
   if(!tvOn)return;
-  const box=$('tvbox'),iv=TVIV[BINMAP[state.key]?$('tf').value:'1d']||'D',id='tv_'+Date.now();
+  const box=$('tvbox'),iv=TVIV[(BINMAP[state.key]||useTD())?$('tf').value:'1d']||'D',id='tv_'+Date.now();
   box.innerHTML='';
   const d=document.createElement('div');d.id=id;d.style.height='100%';box.appendChild(d);
   new window.TradingView.widget({autosize:true,symbol:TVSYM[state.key],interval:iv,timezone:'Asia/Jakarta',theme:isDark()?'dark':'light',style:'1',locale:'id',enable_publishing:false,allow_symbol_change:true,
@@ -923,16 +981,19 @@ function recompute(){
 pairSel.addEventListener('change',()=>{
   state.key=pairSel.value;$('spr').value=PAIRS[state.key].spread;syncTF();
   if(state.live||state.sample){
-    const D=(!BINMAP[state.key]&&FX)?fromFX(state.key):[];
+    const D=(!BINMAP[state.key]&&FX&&!useTD())?fromFX(state.key):[];
     if(D.length>=80){state.data=D;state.sample=false;state.live=true;state.name='Kurs acuan harian ECB via Frankfurter';state.closeOnly=true;recompute();}
-    else{state.data=makeSample(state.key);state.sample=true;state.live=false;state.closeOnly=false;recompute();if(!netBlocked)loadLive();}
+    else{state.data=makeSample(state.key);state.sample=true;state.live=false;state.closeOnly=false;recompute();if(!netBlocked)reload();}
   }else recompute();
   if(tvOn)drawTV();
 });
-$('btnLive').addEventListener('click',loadLive);
+$('btnLive').addEventListener('click',()=>{state.src='default';syncTF();loadLive();});
+$('btnTD').addEventListener('click',loadTD);
+$('tdkey').value=lsGet('rsf_tdkey');
+$('tdkey').addEventListener('input',()=>lsSet('rsf_tdkey',tdKey()));
 $('btnTV').addEventListener('click',toggleTV);
 $('tf').addEventListener('change',()=>{
-  if(BINMAP[state.key]&&(state.live||state.sample))loadLive();
+  if((BINMAP[state.key]||useTD())&&(state.live||state.sample))reload();
   if(tvOn)drawTV();
 });
 $('btnSample').addEventListener('click',()=>{setData(makeSample(state.key),true,'',false);});
